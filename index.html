@@ -1,397 +1,438 @@
 <!DOCTYPE html>
 <html>
-	<head>
-		<meta charset="utf-8">
-		<title>My first three.js app</title>
-		<script src="three.js"></script>
-		<script type="module">
 
-			const scene = new THREE.Scene();
-			const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+<head>
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<script src="https://cdn.jsdelivr.net/npm/mind-ar@1.1.4/dist/mindar-image-three.prod.js"></script>
 
-			let renderer;
+	<meta charset="utf-8">
+	<title>My first three.js app</title>
+	<!-- script src="three.js"></script -->
+	<script type="module">
+		// MindAR Init
+		const THREE = window.MINDAR.IMAGE.THREE;
+		const mindarThree = new window.MINDAR.IMAGE.MindARThree({
+			container: document.querySelector("#container"),
+			imageTargetSrc: "targets.mind",
+			filterMinCF: 1,
+			filterBeta: 10
+		});
+		console.log(mindarThree);
+		const { renderer, scene, camera } = mindarThree;
+		const anchor = mindarThree.addAnchor(0);
 
-			let raycaster;
-			let pointer;
+		let raycaster;
+		let pointer;
 
-			let pingpong = 0;
+		let hotspot;
+		let hotspotUrl;
+		let hotspotText;
 
-			let hotspot;
-			let hotspotUrl;
-			let hotspotText;
+		let popup;
+		let objText;
 
-			let popup;
-			let objText;
+		const webOverlay = document.querySelector("#overlay");
+		const webFrame = document.querySelector("#videoWindow");
+		const htmlText = document.querySelector("#textOverlay");
+		const webVideo = document.querySelector("#video");
 
-			const labelOverlay = document.querySelector("#labels");
+		const labelOverlay = document.querySelector("#labels");
 
-			function makeLabeledHotspot(geometry, color, name) {
-				const material = new THREE.MeshPhongMaterial({ color });
-				const geo = new THREE.Mesh(geometry, material);
+		function makeLabeledHotspot(geometry, color, name) {
+			const material = new THREE.MeshPhongMaterial({ color });
+			const geo = new THREE.Mesh(geometry, material);
 
-				scene.add(geo);
+			anchor.group.add(geo);
 
-				const elem = document.createElement('div');
-				elem.textContent = name;
-				labelOverlay.appendChild(elem);
+			const elem = document.createElement('div');
+			elem.textContent = name;
+			labelOverlay.appendChild(elem);
 
-				return { geo, elem };
+			return { geo, elem };
+		}
+
+		function init() {
+			// Scene setup
+			raycaster = new THREE.Raycaster();
+			pointer = new THREE.Vector2();
+
+			const hotspotGeo = new THREE.SphereGeometry(0.25, 16, 8);
+			//const hotspotMat = new THREE.MeshPhongMaterial({ color: 0x00ff00, emissive: 0x000000 });
+
+			// Initialize hotspots and add them to scene
+			hotspot = makeLabeledHotspot(hotspotGeo, 0xffcc00, "Video");
+			hotspot.geo.position.set(0, -0.5, 0)
+
+			hotspotUrl = makeLabeledHotspot(hotspotGeo, 0xffcc00, "Webpage");
+			hotspotUrl.geo.position.set(-0.5, 0.5, 0);
+
+			hotspotText = makeLabeledHotspot(hotspotGeo, 0xffcc00, "Text");
+			hotspotText.geo.position.set(0.5, 0.5, 0);
+
+			// Initialize popup for Video Overlay
+			const popupGeo = new THREE.PlaneGeometry(1, 0.55);
+			const popupMat = new THREE.MeshPhongMaterial({ color: 0xffcc00, emissive: 0x000000, transparent: true, opacity: 0 });
+
+			popup = new THREE.Mesh(popupGeo, popupMat);
+			popup.position.set(0.5, 0.5, 0);
+			hotspot.geo.add(popup);
+
+			// 3d Text Object
+			const ctx = document.createElement('canvas').getContext('2d');
+			document.body.appendChild(ctx.canvas);
+			ctx.canvas.hidden = true;
+			ctx.canvas.width = 512;
+			ctx.canvas.height = 128;
+			ctx.fillStyle = '#FFF';
+			ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+			ctx.fillStyle = '#000';
+			ctx.font = '48px serif';
+			ctx.fillText("This is 3D Text", 10, 60);
+			const texture = new THREE.CanvasTexture(ctx.canvas);
+
+			const objTextGeo = new THREE.PlaneGeometry(2, 0.5);
+			const objTextMat = new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0 });
+			objText = new THREE.Mesh(objTextGeo, objTextMat);
+			objText.position.set(1, 0.5, 0);
+			objText.rotation.set(0, -Math.PI / 8, 0);
+			hotspotText.geo.add(objText);
+
+
+			const color = 0xFFFFFF;
+			const intensity = 1;
+			const light = new THREE.DirectionalLight(color, intensity);
+			light.position.set(-1, 2, 4);
+			scene.add(light);
+
+
+		}
+
+		// Adding events to a custom object 
+		class HotspotEvents extends THREE.EventDispatcher {
+			togglePopup() { this.dispatchEvent({ type: 'togglePopup', popup: popup, webFrame: webFrame }); }
+			openUrl() { this.dispatchEvent({ type: 'openUrl', url: "https://google.com/" }); }
+			toggleText() { this.dispatchEvent({ type: 'toggleText', htmlText: htmlText, objText: objText }); }
+		};
+		// Using events with the custom object 
+		const hotspotEvents = new HotspotEvents();
+		hotspotEvents.addEventListener('togglePopup', function (event) {
+			console.info('Toggle Popup: ' + event.popup.material.opacity);
+
+			/*
+			if (popup.material.opacity == 0) {
+				popup.material.opacity = 0.5;
+			}
+			else {
+				popup.material.opacity = 0;
+			}
+			*/
+
+			event.webFrame.hidden = !event.webFrame.hidden;
+			if (!event.webFrame.hidden && !webVideo.playing) {
+				webVideo.play();
+			}
+			else {
+				webVideo.pause();
+			}
+		});
+		hotspotEvents.addEventListener('openUrl', function (event) {
+			console.info('OpenUrl: ' + event.url);
+
+			window.open(event.url, "_blank");
+		});
+		hotspotEvents.addEventListener('toggleText', function (event) {
+			console.info('Toggle Text: ');
+
+			if (event.objText.material.opacity == 0) {
+				event.objText.material.opacity = 1;
+			}
+			else {
+				event.objText.material.opacity = 0;
 			}
 
-			function init() {
-				// Scene setup
+			event.htmlText.hidden = !event.htmlText.hidden;
+		});
 
-				raycaster = new THREE.Raycaster();
-				pointer = new THREE.Vector2();
+		// Manage inputs
+		function onClick(event) {
+			console.info('Click Event');
+			raycaster.setFromCamera(pointer, camera);
 
-				renderer = new THREE.WebGLRenderer();
-				renderer.setSize(window.innerWidth, window.innerHeight);
-				document.body.appendChild(renderer.domElement);
+			// calculate objects intersecting the picking ray
+			const intersects = raycaster.intersectObjects(scene.children);
 
-				const geometry = new THREE.BoxGeometry(1, 1, 1);
-				const material = new THREE.MeshPhongMaterial({ color: 0x00ff00, emissive: 0x000000 });
-
-				const hotspotGeo = new THREE.SphereGeometry(0.5, 16, 8);
-				//const hotspotMat = new THREE.MeshPhongMaterial({ color: 0xffcc00, emissive: 0x000000 });
-
-				// Initialize hotspots and add them to scene
-				hotspot = makeLabeledHotspot(hotspotGeo, 0xffcc00, "Video");
-
-				hotspotUrl = makeLabeledHotspot(hotspotGeo, 0xffcc00, "Webpage");
-				hotspotUrl.geo.position.set(0, 2, 0);
-
-				hotspotText = makeLabeledHotspot(hotspotGeo, 0xffcc00, "Text");
-				hotspotText.geo.position.set(0, -2, 0);
-
-				// Initialize popup for Video Overlay
-				const popupGeo = new THREE.PlaneGeometry(1, 0.55);
-				const popupMat = new THREE.MeshPhongMaterial({ color: 0xffcc00, emissive: 0x000000, transparent: true, opacity: 0 });
-
-				popup = new THREE.Mesh(popupGeo, popupMat);
-				popup.position.set(2, 2, 0);
-				hotspot.geo.add(popup);
-
-				// 3d Text Object
-				const ctx = document.createElement('canvas').getContext('2d');
-				document.body.appendChild(ctx.canvas);
-				ctx.canvas.hidden = true;
-				ctx.canvas.width = 512;
-				ctx.canvas.height = 128;
-				ctx.fillStyle = '#FFF';
-				ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-				ctx.fillStyle = '#000';
-				ctx.font = '48px serif';
-				ctx.fillText("This is 3D Text", 10, 60);
-				const texture = new THREE.CanvasTexture(ctx.canvas);
-
-				const objTextGeo = new THREE.PlaneGeometry(2, 0.5);
-				const objTextMat = new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0 });
-				objText = new THREE.Mesh(objTextGeo, objTextMat);
-				objText.position.set(1, 1, 0);
-				objText.rotation.set(0, -Math.PI/8, 0);
-				hotspotText.geo.add(objText);
-
-				// Add a light
-				const color = 0xFFFFFF;
-				const intensity = 1;
-				const light = new THREE.DirectionalLight(color, intensity);
-				light.position.set(-1, 2, 4);
-				scene.add(light);
-
-				camera.position.z = 5;
-
-				const container = document.querySelector("#container");
-				container.appendChild(renderer.domElement);
+			if (intersects.length > 0) {
+				console.info(intersects[0].object);
+				if (intersects[0].object == hotspot.geo) {
+					hotspotEvents.togglePopup();
+				}
+				else if (intersects[0].object == hotspotUrl.geo) {
+					hotspotEvents.openUrl();
+				}
+				else if (intersects[0].object == hotspotText.geo) {
+					hotspotEvents.toggleText();
+				}
 			}
+		}
+		function onPointerMove(event) {
 
-			const webFrame = document.querySelector("#overlay");
-			const htmlText = document.querySelector("#textOverlay");
-			const webVideo = document.querySelector("#video");
+			// calculate pointer position in normalized device coordinates
+			// (-1 to +1) for both components
 
-			// Adding events to a custom object 
-			class HotspotEvents extends THREE.EventDispatcher {
-				togglePopup() { this.dispatchEvent({ type: 'togglePopup', popup: popup, webFrame: webFrame }); }
-				openUrl() { this.dispatchEvent({ type: 'openUrl', url: "https://google.com/" }); }
-				toggleText() { this.dispatchEvent({ type: 'toggleText', htmlText: htmlText, objText: objText }); }
-			};
-			// Using events with the custom object 
-			const hotspotEvents = new HotspotEvents();
-			hotspotEvents.addEventListener('togglePopup', function (event) {
-				console.info('Toggle Popup: ' + event.popup.material.opacity);
-				if (event.popup.material.opacity == 0) {
-					 event.popup.material.opacity = 0.5;
+			pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+			pointer.y = - (event.clientY / window.innerHeight) * 2 + 1;
+
+		}
+
+		// Handle Target Detection
+		anchor.onTargetFound = function targetFound() {
+			labelOverlay.hidden = null;
+			webOverlay.hidden = null;
+		}
+		anchor.onTargetLost = function targetLost() {
+			labelOverlay.hidden = true;
+			webOverlay.hidden = true;
+		}
+
+		console.info(anchor);
+
+		window.addEventListener('pointermove', onPointerMove);
+		window.addEventListener('click', onClick);
+
+		let selectedObject;
+
+		function input() {
+			// update the picking ray with the camera and pointer position
+			raycaster.setFromCamera(pointer, camera);
+
+			// calculate objects intersecting the picking ray
+			const intersects = raycaster.intersectObjects(scene.children);
+
+			if ((intersects.length > 0 && intersects[0].object != selectedObject) || selectedObject != null) {
+
+				if (selectedObject != null) {
+					if (Object.hasOwn(selectedObject.material, "emissive")) {
+						selectedObject.material.emissive.set(0x000000);
+					}
 				}
-				else {
-					 event.popup.material.opacity = 0;
-				}
-
-				event.webFrame.hidden = !event.webFrame.hidden;
-				if(!event.webFrame.hidden && !webVideo.playing)
-				{
-					webVideo.play();
-				}
-				else
-				{
-					webVideo.pause();
-				}
-			});
-			hotspotEvents.addEventListener('openUrl', function (event) {
-				console.info('OpenUrl: ' +  event.url);
-					
-				window.open(event.url, "_blank");
-			});
-			hotspotEvents.addEventListener('toggleText', function (event) {
-				console.info('Toggle Text: ');
-
-				if (event.objText.material.opacity == 0) {
-					event.objText.material.opacity = 1;
-				}
-				else {
-					event.objText.material.opacity = 0;
-				}
-
-				event.htmlText.hidden = !event.htmlText.hidden;
-			});
-
-
-			function onClick(event) {
-				console.info('Click Event');
-				raycaster.setFromCamera(pointer, camera);
-
-				// calculate objects intersecting the picking ray
-				const intersects = raycaster.intersectObjects(scene.children);
 
 				if (intersects.length > 0) {
-					if (intersects[0].object == hotspot.geo) {
-						hotspotEvents.togglePopup();
+					if (Object.hasOwn(intersects[0].object.material, "emissive")) {
+						intersects[0].object.material.emissive.set(0x009999);
 					}
-					else if(intersects[0].object == hotspotUrl.geo) {
-						hotspotEvents.openUrl();
-					}
-					else if (intersects[0].object == hotspotText.geo) {
-						hotspotEvents.toggleText();
-					}
+					selectedObject = intersects[0].object;
+				}
+				else {
+					selectedObject = null;
 				}
 			}
+		}
 
-			function onPointerMove(event) {
+		function update() {
 
-				// calculate pointer position in normalized device coordinates
-				// (-1 to +1) for both components
+		}
 
-				pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-				pointer.y = - (event.clientY / window.innerHeight) * 2 + 1;
+		function positionHtmlToObj(canvas, obj, html, offset) {
+			const tempV = new THREE.Vector3();
 
+			obj.getWorldPosition(tempV);
+			if (offset != null) {
+				tempV.x = tempV.x + offset.x;
+				tempV.y = tempV.y + offset.y;
+				tempV.z = tempV.z + offset.z;
 			}
+			tempV.project(camera);
 
-			window.addEventListener('pointermove', onPointerMove);
-			window.addEventListener('click', onClick);
+			const x = (tempV.x * .5 + .5) * canvas.clientWidth;
+			const y = (tempV.y * -.5 + .5) * canvas.clientHeight;
 
-			let selectedObject;
+			html.style.transform = "translate(calc(" + x + "px - 50%),calc(" + y + "px - 50%))";
+		}
 
-			function resizeRendererToDisplaySize(renderer) {
-				const canvas = renderer.domElement;
-				const width = canvas.clientWidth;
-				const height = canvas.clientHeight;
-				const needResize = canvas.width !== width || canvas.height !== height;
-				if (needResize) {
-					renderer.setSize(width, height, false);
-				}
-				return needResize;
-			}
+		let popupX = 0;
+		let popupY = 0;
 
-			function input() {
-				// update the picking ray with the camera and pointer position
-				raycaster.setFromCamera(pointer, camera);
+		function render() {
+			/*
+			renderer.clear();
 
-				// calculate objects intersecting the picking ray
-				const intersects = raycaster.intersectObjects(scene.children);
+			camera.aspect = window.innerWidth / window.innerHeight;
+			camera.updateProjectionMatrix();
 
-				if ((intersects.length > 0 && intersects[0].object != selectedObject) || selectedObject != null) {
+			renderer.setSize(window.innerWidth, window.innerHeight);
+			*/
 
-					if (selectedObject != null) {
-						if (Object.hasOwn(selectedObject.material, "emissive")) {
-							selectedObject.material.emissive.set(0x000000);
-						}
-					}
+			const canvas = renderer.domElement;
+			const tempV = new THREE.Vector3();
 
-					if (intersects.length > 0) {
-						if(Object.hasOwn(intersects[0].object.material, "emissive")) {
-							intersects[0].object.material.emissive.set(0x009999);
-						}
-						selectedObject = intersects[0].object;
-					}
-					else {
-						selectedObject = null;
-					}
-				}
-			}
+			// Hotspot Text Overlays
+			let offset = new THREE.Vector3(0, -0.5, 0);
+			positionHtmlToObj(canvas, hotspot.geo, hotspot.elem, offset);
+			positionHtmlToObj(canvas, hotspotUrl.geo, hotspotUrl.elem, offset);
+			positionHtmlToObj(canvas, hotspotText.geo, hotspotText.elem, offset);
 
-			function update(timestep) {
+			// Text Overlay
+			offset = new THREE.Vector3(-2, 0, 0);
+			positionHtmlToObj(canvas, hotspotText.geo, htmlText, offset);
 
-				pingpong = timestep / 1000;
-				pingpong = pingpong % 2;
+			// Video Frame
+			positionHtmlToObj(canvas, popup, webFrame);
+			/*
+			// Video Frame with smoothing
+			popup.getWorldPosition(tempV);
+			tempV.project(camera);
 
-				let newX;
-				if(pingpong >= 0 && pingpong < 1)
-				{
-					newX = -1 + pingpong*2;
-				}
-				else
-				{
-					newX = -1 + (1 - (pingpong - 1)) * 2;
-				}
+			var smooth = 0.5;
 
-				hotspot.geo.position.x = newX;
-				hotspotUrl.geo.position.x = newX;
-				hotspotText.geo.position.x = newX;
+			//const x = ((tempV.x * .5 + .5) * canvas.clientWidth * smooth) + (popupX * (1-smooth));
+			//const y = ((tempV.y * -.5 + .5) * canvas.clientHeight * smooth) + (popupY * (1 - smooth));
 
-				//console.info(pingpong % 2, pingpong, hotspot.position);
-				
-			}
+			const x = (tempV.x * .5 + .5) * canvas.clientWidth;
+			const y = (tempV.y * -.5 + .5) * canvas.clientHeight;
 
-			function positionHtmlToObj(canvas, obj, html, offset) {
-				const tempV = new THREE.Vector3();
+			popupX = Math.max(0, Math.min(canvas.clientWidth, (x * smooth) + (popupX * (1 - smooth))));
+			popupY = Math.max(0, Math.min(canvas.clientHeight, (y * smooth) + (popupY * (1 - smooth))));
 
-				obj.getWorldPosition(tempV);
-				if(offset != null)
-				{
-					tempV.x = tempV.x + offset.x;
-					tempV.y = tempV.y + offset.y;
-					tempV.z = tempV.z + offset.z;
-				}
-				tempV.project(camera);
+			console.info("Base Coords: " + x + " , " + y + " || Smoothed: " + popupX + " , " + popupY);
 
-				const x = (tempV.x * .5 + .5) * canvas.clientWidth;
-				const y = (tempV.y * -.5 + .5) * canvas.clientHeight;
+			//webFrame.style.transform = "translate(" + x + "px," + y + "px)";
+			webFrame.style.transform = "translate(calc(" + popupX + "px - 50%),calc(" + popupY + "px - 50%))";
+			*/
 
-				//webFrame.style.transform = "translate(" + x + "px," + y + "px)";
-				html.style.transform = "translate(calc(" + x + "px - 50%),calc(" + y + "px - 50%))";
-			}
+			renderer.render(scene, camera);
+		}
 
-			function render() {
-				renderer.clear();
+		function mainloop(timestep) {
+			//requestAnimationFrame(mainloop);
 
-				const canvas = renderer.domElement;
+			input();
 
-				if (resizeRendererToDisplaySize(renderer)) {
-					camera.aspect = canvas.clientWidth / canvas.clientHeight;
-					camera.updateProjectionMatrix();
-				}
+			update();
 
-				// Hotspot Text Overlays
-				let offset = new THREE.Vector3(0, -0.5, 0);
-				positionHtmlToObj(canvas, hotspot.geo, hotspot.elem, offset);
-				positionHtmlToObj(canvas, hotspotUrl.geo, hotspotUrl.elem, offset);
-				positionHtmlToObj(canvas, hotspotText.geo, hotspotText.elem, offset);
+			render();
+		};
 
-				// Video Frame
-				positionHtmlToObj(canvas, popup, webFrame);
+		const start = async () => {
+			await mindarThree.start();
 
-				// Text Overlay
-				offset = new THREE.Vector3(-1, 0, 0);
-				positionHtmlToObj(canvas, hotspotText.geo, htmlText, offset);
+			renderer.setAnimationLoop(() => {
+				mainloop();
+			});
+		}
 
-				renderer.render(scene, camera);
-			}
+		const startButton = document.querySelector("#startButton");
+		startButton.addEventListener("click", () => {
+			start();
+		});
+		stopButton.addEventListener("click", () => {
+			mindarThree.stop();
+			mindarThree.renderer.setAnimationLoop(null);
+		});
 
-			function mainloop(timestep) {
+		init();
 
-				input();
+	</script>
 
-				update(timestep);
+	<style>
+		body {
+			margin: 0;
+		}
 
-				render();
+		#container {
+			width: 100vw;
+			height: 100vh;
+			position: relative;
+			overflow: hidden;
+		}
 
-				requestAnimationFrame(mainloop);
-			};
+		#control {
+			position: fixed;
+			top: 0;
+			left: 0;
+			z-index: 5;
+		}
 
-			init();
-			
-			mainloop();
+		#videoWindow {
+			position: absolute;
+			background-color: red;
+			width: fit-content;
+			height: fit-content;
+			top: 0;
+			left: 0;
+			z-index: 2;
+			padding: 10px;
+		}
 
-		</script>
-		<style>
-			body {
-				height: 100%;
-				margin: 0;
-			}
-		
-			#container {
-				width: 100%;
-				height: 100%;
-				position: relative;
-				overflow: hidden;
-			}
-		
-			#overlay {
-				position: absolute;
-				background-color: red;
-				width: fit-content;
-				height: fit-content;
-				top: 0;
-				left: 0;
-				z-index: 2;
-				padding: 10px;
-			}
-		
-			#labels {
-				position: absolute;
-				/* let us position ourself inside the container */
-				left: 0;
-				/* make our position the top left of the container */
-				top: 0;
-				color: white;
-			}
-		
-			#labels>div {
-				position: absolute;
-				/* let us position them inside the container */
-				left: 0;
-				/* make their default position the top left of the container */
-				top: 0;
-				font-size: large;
-				user-select: none;
-				/* don't let the text get selected */
-				text-shadow:
-					/* create a black outline */
-					-1px -1px 0 #000,
-					0 -1px 0 #000,
-					1px -1px 0 #000,
-					1px 0 0 #000,
-					1px 1px 0 #000,
-					0 1px 0 #000,
-					-1px 1px 0 #000,
-					-1px 0 0 #000;
-			}
-		
-			#textOverlay {
-				position: absolute;
-				/* let us position ourself inside the container */
-				left: 0;
-				/* make our position the top left of the container */
-				top: 0;
-				padding: 10px;
-				border-width: 4px;
-				border-style: solid;
-				color: white;
-				background-color: blue;
-			}
-		</style>
-	</head>
-	<body>
-		<div id="container">
-			<div id="labels"></div>
-			<div id="overlay" hidden="false">
-				<video id="video" controls width="300"> <source src="/webhost-sample/Spring - Blender Open Movie-360p.mp4" type="video/mp4"></video>
-				<!-- iframe title="Sprite Fright" width="300" height="300"
+		#labels {
+			position: absolute;
+			/* let us position ourself inside the container */
+			left: 0;
+			/* make our position the top left of the container */
+			top: 0;
+			color: white;
+			z-index: 1;
+		}
+
+		#labels>div {
+			position: absolute;
+			/* let us position them inside the container */
+			left: 0;
+			/* make their default position the top left of the container */
+			top: 0;
+			font-size: large;
+			user-select: none;
+			/* don't let the text get selected */
+			text-shadow:
+				/* create a black outline */
+				-1px -1px 0 #000,
+				0 -1px 0 #000,
+				1px -1px 0 #000,
+				1px 0 0 #000,
+				1px 1px 0 #000,
+				0 1px 0 #000,
+				-1px 1px 0 #000,
+				-1px 0 0 #000;
+		}
+
+		#textOverlay {
+			position: absolute;
+			/* let us position ourself inside the container */
+			left: 0;
+			/* make our position the top left of the container */
+			top: 0;
+			padding: 10px;
+			border-width: 4px;
+			border-style: solid;
+			color: white;
+			background-color: blue;
+			z-index: 2;
+		}
+	</style>
+</head>
+
+<body>
+	<div id="labels" hidden="true"></div>
+	<div id="control">
+		<button id="startButton">Start</button>
+		<button id="stopButton">Stop</button>
+	</div>
+	<div id="overlay">
+		<div id="videoWindow" hidden="false">
+			<video id="video" controls width="300">
+				<source src="/webhost-sample/Spring - Blender Open Movie-360p.mp4" type="video/mp4">
+			</video>
+			<!--iframe title="Sprite Fright" style="margin: 10px;" width="300" height="300"
 					src="https://www.youtube.com/embed/_cMxraX_5RE?start=7" frameborder="0"
-					allow="accelerometer; clipboard-write; encrypted-media; autoplay;" style="margin:auto ;" >
-				</iframe -->
-			</div>
-			<div id="textOverlay" hidden="">
-				<label>This is a text overlay</label>
-			</div>
+					allow="accelerometer; clipboard-write; encrypted-media;" style="margin:auto ;"></iframe -->
 		</div>
-	</body>
+		<div id="textOverlay" hidden="">
+			<label>This is a text overlay</label>
+		</div>
+	</div>
+	<div id="container">
+
+	</div>
+
+</body>
+
 </html>
